@@ -97,7 +97,7 @@ stream. (It also publishes the optional WebRTC camera tracks.)
 ## Install
 
 ```bash
-git clone https://github.com/Dream-Machines-Robotics/vr-teleop-kit
+git clone https://github.com/molyswu/yuxiang-vr-teleop
 cd vr-teleop-kit
 pip install -e ".[relay,lerobot]"           # or: uv pip install -e ".[relay,lerobot]"
 
