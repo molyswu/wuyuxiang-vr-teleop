@@ -1,0 +1,241 @@
+from __future__ import annotations
+
+import time
+import numpy as np
+import rclpy
+from ament_index_python.packages import get_package_share_directory
+from rclpy.node import Node
+from sensor_msgs.msg import JointState
+
+from .control_state import select_command_mode, update_home_latch
+from .oculus_reader import OculusReader
+from .piper_ik import PiperIK
+from .piper_sdk_adapter import PiperSdkAdapter
+from .safe_home_config import SAFE_HOME_Q
+from .pose_math import (
+    limit_target_translation,
+    quest_to_robot_transform,
+    relative_pose,
+    scale_target_rotation,
+    scale_target_translation,
+    smooth_pose,
+    xyzrpy_matrix,
+)
+
+
+class QuestSinglePiperNode(Node):
+    def __init__(self):
+        super().__init__("quest_single_piper_node")
+        self.declare_parameter("urdf_path", "")
+        self.declare_parameter("can_name", "can0")
+        self.declare_parameter("allow_hardware", False)
+        self.declare_parameter("quest_ip", "")
+        self.declare_parameter("require_b_button", True)
+        self.declare_parameter("b_debounce_sec", 0.10)
+        self.declare_parameter("speed_rate", 10)
+        self.declare_parameter("max_joint_step_rad", 0.01)
+        self.declare_parameter("translation_scale", 1.5)
+        self.declare_parameter("rotation_scale", 0.5)
+        self.declare_parameter("pose_smoothing_alpha", 0.25)
+        self.declare_parameter("max_cartesian_step_m", 0.02)
+        self.declare_parameter("max_rotation_step_rad", 0.12)
+        self.declare_parameter("workspace_min", [0.02, -0.65, 0.02])
+        self.declare_parameter("workspace_max", [0.75, 0.65, 0.75])
+        self.declare_parameter("hold_when_b_released", True)
+        self.declare_parameter("home_requires_b", True)
+        self.declare_parameter("disable_on_exit", False)
+        urdf = self.get_parameter("urdf_path").value
+        if not urdf:
+            urdf = get_package_share_directory("quest_teleop_ros2") + "/urdf/piper_description.urdf"
+        self.ik = PiperIK(urdf)
+        # No-hardware mode keeps the historical nominal origin; hardware mode
+        # replaces this with the measured startup end-effector pose below.
+        self.startup_pose = xyzrpy_matrix(0.19, 0.0, 0.2, 0, 0, 0)
+        self.adapter = PiperSdkAdapter(
+            self.get_parameter("can_name").value,
+            bool(self.get_parameter("allow_hardware").value),
+            int(self.get_parameter("speed_rate").value),
+            float(self.get_parameter("max_joint_step_rad").value),
+        )
+        if self.adapter.allow_hardware and not self.adapter.connect():
+            self.adapter.close(disable=True)
+            raise RuntimeError("Piper SDK could not connect/enable the arm")
+        if self.adapter.allow_hardware:
+            current_q = self.adapter.read_joint_positions_rad()
+            if current_q is None:
+                self.adapter.close(disable=True)
+                raise RuntimeError("Could not read Piper joint state before motion")
+            self.ik.last_q = np.asarray(current_q, dtype=float)
+            self.startup_pose = self.ik.forward_ee_pose(current_q)
+            self.adapter.set_command_reference(current_q)
+            self.home_q = np.asarray(SAFE_HOME_Q, dtype=float)
+            self.last_valid_q = np.asarray(current_q, dtype=float)
+            self.get_logger().warning(
+                "Hardware enabled: starting from measured joint position; "
+                "B button gate and step limiter are active"
+            )
+        ip = self.get_parameter("quest_ip").value or None
+        self.reader = OculusReader(ip_address=ip)
+        self.pub = self.create_publisher(JointState, "joint_command", 10)
+        self.base = None
+        self.home_q = getattr(self, "home_q", np.asarray(SAFE_HOME_Q, dtype=float))
+        self.home_latched = False
+        self.last_valid_q = getattr(self, "last_valid_q", None)
+        self.last_gripper = 0.0
+        self.filtered_target = None
+        self.b_pressed_since = None
+        self.last_input_xyz = None
+        self.timer = self.create_timer(0.02, self.tick)
+        self.get_logger().warning("Piper hardware is disabled unless allow_hardware:=true")
+
+    def tick(self):
+        transforms, buttons = self.reader.get_transformations_and_buttons()
+        raw = transforms.get("r")
+        a_pressed = bool(buttons.get("A", False))
+        b_pressed = bool(buttons.get("B", False))
+        current = quest_to_robot_transform(raw) if raw is not None else None
+        require_b = bool(self.get_parameter("require_b_button").value)
+        now = time.monotonic()
+        if b_pressed:
+            if self.b_pressed_since is None:
+                self.b_pressed_since = now
+            b_gate_active = (
+                not require_b
+                or now - self.b_pressed_since
+                >= float(self.get_parameter("b_debounce_sec").value)
+            )
+        else:
+            self.b_pressed_since = None
+            b_gate_active = not require_b
+        vr_active = b_gate_active
+        q = None
+        gripper = self.last_gripper
+        clipped = False
+        target_position = None
+        ik_status = "not_attempted"
+        input_xyz = None if current is None else current[:3, 3].copy()
+        input_delta = None
+        if input_xyz is not None and self.last_input_xyz is not None:
+            input_delta = float(np.linalg.norm(input_xyz - self.last_input_xyz))
+        if input_xyz is not None:
+            self.last_input_xyz = input_xyz.copy()
+
+        if vr_active and current is not None:
+            if self.base is None:
+                self.base = current.copy()
+            target = relative_pose(self.base, current, self.startup_pose)
+            target = scale_target_translation(
+                target,
+                float(self.get_parameter("translation_scale").value),
+                origin=self.startup_pose[:3, 3],
+            )
+            target = scale_target_rotation(
+                target, float(self.get_parameter("rotation_scale").value)
+            )
+            target, clipped = limit_target_translation(
+                target, 1.0,
+                self.get_parameter("workspace_min").value,
+                self.get_parameter("workspace_max").value,
+                origin=self.startup_pose[:3, 3],
+            )
+            if clipped:
+                self.get_logger().warning(
+                    "VR target clipped to Piper workspace", throttle_duration_sec=1.0
+                )
+            if self.filtered_target is None:
+                self.filtered_target = target
+            else:
+                self.filtered_target = smooth_pose(
+                    self.filtered_target,
+                    target,
+                    float(self.get_parameter("pose_smoothing_alpha").value),
+                )
+            target_position = self.filtered_target[:3, 3].copy()
+            q, status = self.ik.solve_with_status(self.filtered_target)
+            ik_status = status
+            if status != "ok":
+                self.get_logger().warning(
+                    f"IK status: {status}", throttle_duration_sec=1.0
+                )
+                q = None
+            else:
+                self.last_valid_q = np.asarray(q, dtype=float).copy()
+                values = buttons.get("rightTrig", [0.0])
+                gripper = float(values[0]) * 0.07
+                self.last_gripper = gripper
+
+        self.home_latched = update_home_latch(
+            a_pressed,
+            b_pressed,
+            self.home_q is not None,
+            self.home_latched,
+            bool(self.get_parameter("home_requires_b").value),
+        )
+        mode = select_command_mode(
+            a_pressed,
+            b_gate_active,
+            q is not None,
+            self.last_valid_q is not None,
+            self.home_q is not None,
+            bool(self.get_parameter("hold_when_b_released").value),
+            bool(self.get_parameter("home_requires_b").value),
+            self.home_latched,
+        )
+        if mode == "return_home":
+            q = self.home_q.copy()
+            gripper = 0.0
+            self.get_logger().info("Returning to configured safe home pose", throttle_duration_sec=1.0)
+        elif mode == "hold":
+            q = self.last_valid_q
+        elif mode == "no_command":
+            return
+
+        if target_position is not None:
+            target_text = ",".join(f"{float(value):.3f}" for value in target_position)
+        else:
+            target_text = "none"
+        delta_text = "none" if input_delta is None else f"{input_delta:.4f}"
+        feedback_text = "none"
+        enable_text = "none"
+        if self.adapter.allow_hardware:
+            enable_status = self.adapter.read_enable_status()
+            if enable_status is not None:
+                enable_text = "".join("1" if enabled else "0" for enabled in enable_status)
+            feedback = self.adapter.read_joint_positions_rad()
+            command = self.adapter.last_command_rad()
+            if feedback is not None and command is not None:
+                feedback_text = f"{max(abs(a - b) for a, b in zip(feedback, command)):.4f}"
+        self.get_logger().info(
+            f"VR_DIAG mode={mode} target_xyz=[{target_text}] "
+            f"clipped={clipped} ik={ik_status} "
+            f"buttons=A:{int(a_pressed)} B:{int(b_pressed)} "
+            f"b_gate={int(b_gate_active)} "
+            f"input_delta_m={delta_text} "
+            f"enable={enable_text} feedback_err_rad={feedback_text}",
+            throttle_duration_sec=1.0,
+        )
+
+        if q is None:
+            return
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.name = [f"joint{i}" for i in range(1, 8)]
+        msg.position = [float(x) for x in q] + [gripper]
+        self.pub.publish(msg)
+        if self.adapter.allow_hardware:
+            self.adapter.send_joint_command(q, gripper)
+
+    def destroy_node(self):
+        self.reader.stop()
+        self.adapter.close(bool(self.get_parameter("disable_on_exit").value))
+        super().destroy_node()
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = QuestSinglePiperNode()
+    try:
+        rclpy.spin(node)
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
