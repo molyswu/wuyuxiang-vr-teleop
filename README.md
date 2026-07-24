@@ -3,7 +3,7 @@
 VR teleoperation kit for the **PIPER robotic arm** using a **Meta Quest** headset. A ROS2 Humble node reads 6-DoF controller poses from the Quest via USB ADB, runs inverse kinematics (IK) on a MuJoCo model built from the PIPER URDF, and sends joint commands over CAN bus through the Piper SDK.
 
  reworked for the single-arm PIPER platform.
-
+https://github.com/google-deepmind/mujoco_menagerie/tree/main/agilex_piper
 ## Highlights
 
 | Feature | Description |
