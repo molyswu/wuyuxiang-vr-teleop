@@ -1,0 +1,5 @@
+[console_scripts]
+oculus_pose_node = quest_teleop_ros2.oculus_pose_node:main
+piper_daemon = quest_teleop_ros2.piper_daemon:main
+quest_single_piper_node = quest_teleop_ros2.quest_single_piper_node:main
+

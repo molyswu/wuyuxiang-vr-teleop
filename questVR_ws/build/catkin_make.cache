@@ -1,0 +1,2 @@
+Piper_ros/src/piper:Piper_ros/src/piper_description:Piper_ros/src/piper_msgs:oculus_reader
+-DCATKIN_DEVEL_PREFIX=/home/mc509/Workspace/VLA/quest/questVR_ws/devel -DCMAKE_INSTALL_PREFIX=/home/mc509/Workspace/VLA/quest/questVR_ws/install -G Unix Makefiles
