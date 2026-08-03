@@ -152,7 +152,7 @@ Mean ± SD across 10 operators and 15 trials per task type. Cooperative alignmen
 ```bash
 # Clone this repo
 git clone git@github.com:molyswu/wuyuxiang-vr-teleop.git
-cd yuxiang-vr-teleop
+cd wuyuxiang-vr-teleop
 
 # Set up ROS2 Humble environment
 source /opt/ros/humble/setup.bash
