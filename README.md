@@ -40,6 +40,16 @@ Click any video to view (opens in browser's native video player).
 | **USB connectivity** | ADB reverse over USB cable, ~1 ms latency, reliable and low-jitter. |
 | **CAN bus monitoring** | The startup script checks can0 is ERROR-ACTIVE before enabling the arm. |
 
+## System Architecture
+
+![System architecture: operator → VR headset → workstation relay → IK → robot arms](docs/supplementary/system_architecture.png)
+
+**Data flow:** Operator controller input → WebXR app on the Quest → workstation relay → decoupled IK → robot arm joint commands. Haptic feedback flows back from the arm/workstation to the headset.
+
+### Repository Structure
+
+![Repository structure](docs/supplementary/architecture_repo_structure.png)
+
 ## Architecture
 
 ```
@@ -66,6 +76,68 @@ Three layers, separated by concern:
 2. **Teleop Core** (`quest_single_piper_node.py`): State machine that manages clutch engagement (grip button), safety gate (B button), home command (A+B), anchor stabilization, workspace clipping, adaptive smoothing, deadband filtering, and jump rejection. Runs at 50 Hz.
 
 3. **Arm I/O** (`piper_daemon.py` + `piper_sdk_adapter.py`): Persistent daemon that owns the CAN bus connection and motor enable state. Subscribes to `/joint_command`, publishes `/piper_measured_joint_state`. The daemon stays alive across VR client restarts — stop it explicitly with `piper_daemon_stop.sh`.
+
+## Supplementary Materials
+
+Quantitative details from the paper's Supplementary Materials.
+
+### Experimental Setups
+
+| Platform | Hardware | Software Stack | Task Protocol | Evaluation Metrics |
+|----------|----------|----------------|---------------|--------------------|
+| **PIPER** | PIPER 7-DOF collaborative arm, Meta Quest 3, USB-ADB, CAN bus (`can0`, 1 Mbps) | ROS2 Humble, Python 3.10 (Conda `vt`), MuJoCo for IK | Elevator button pressing via VR controller | Success rate, completion time, end-effector positioning error, NASA-TLX workload score |
+| **TRLC-DK1** | TRLC-DK1 bimanual arms, Meta Quest 3, wrist + Intel RealSense D435/D405 cameras | WebXR relay (FastAPI WebSocket), decoupled IK with MuJoCo, LeRobot teleoperator | Dual-arm pick-and-place; one arm fixes, the other manipulates | Grasp/place success, transport stability, alignment error, completion time, NASA-TLX workload score |
+
+### Supplementary Results
+
+**PIPER (single-arm)**
+- Zero-shot deployment: no code changes or retraining.
+- Wrist-rotation drift: **2.1 ± 0.4 mm** (below physiological tremor).
+- Task performance: **100 %** success rate, **13.5 ± 1.4 s** mean task time, **33.1 ± 5.8** NASA-TLX.
+- Human-in-the-loop takeover latency: **96.7 ± 12.0 ms**.
+
+**TRLC-DK1 (bimanual)**
+- Wrist-rotation drift: **1.1 ± 0.3 mm** (decoupled IK + wrist-pivot calibration).
+- Pick-and-place: **100 %** success rate, **12.3 ± 1.1 s** mean task time, **31.5 ± 5.2** NASA-TLX.
+- Singularity jerk suppression: **3.2 ± 0.9 deg/step** (4.6× improvement with adaptive damping).
+- Takeover latency: **89.4 ± 12.0 ms**.
+
+### Table S1. PIPER Elevator-Button Pressing Performance
+
+Mean ± SD across 10 operators and 20 repetitions per button position.
+
+| Button Position | Success Rate (%) | Mean Task Time (s) | Mean Positioning Error (mm) |
+|-----------------|------------------|--------------------|-----------------------------|
+| Top-Left        | 100              | 14.2 ± 1.5         | 2.4 ± 0.5                   |
+| Top-Right       | 100              | 13.8 ± 1.3         | 2.1 ± 0.4                   |
+| Center          | 100              | 12.9 ± 1.0         | 1.5 ± 0.3                   |
+| Bottom-Left     | 100              | 14.5 ± 1.6         | 2.6 ± 0.6                   |
+| Bottom-Right    | 100              | 13.5 ± 1.2         | 2.0 ± 0.4                   |
+| **Overall Average** | **100**      | **13.8 ± 1.3**     | **2.1 ± 0.4**               |
+
+### Table S2. TRLC-DK1 Bimanual Pick-and-Place by Object Size and Weight
+
+Mean ± SD across 10 operators and 10 repetitions per object category.
+
+| Object Category | Size (cm³) | Weight (kg) | Grasp Success (%) | Place Success (%) | Overall Success (%) | Mean Cycle Time (s) |
+|-----------------|------------|-------------|-------------------|-------------------|---------------------|---------------------|
+| Small-Light     | 5 × 5 × 5  | 0.1         | 100               | 100               | 100                 | 11.8 ± 0.9          |
+| Small-Heavy     | 5 × 5 × 5  | 0.5         | 100               | 100               | 100                 | 12.5 ± 1.0          |
+| Medium-Light    | 10 × 10 × 10 | 1.0       | 100               | 100               | 100                 | 13.2 ± 1.2          |
+| Medium-Heavy    | 10 × 10 × 10 | 3.0       | 100               | 100               | 100                 | 14.8 ± 1.5          |
+| Large-Light     | 15 × 15 × 15 | 2.0       | 100               | 100               | 100                 | 16.1 ± 1.8          |
+| Large-Heavy     | 15 × 15 × 15 | 5.0       | 100               | 100               | 100                 | 17.5 ± 2.0          |
+
+### Table S3. TRLC-DK1 Bimanual Cooperative-Manipulation Tasks
+
+Mean ± SD across 10 operators and 15 trials per task type. Cooperative alignment error is the relative positional deviation between the two end-effectors at task closure.
+
+| Cooperative Task Type | Success Rate (%) | Task Completion Time (s) | Cooperative Alignment Error (mm) | NASA-TLX Workload Score |
+|-----------------------|------------------|--------------------------|----------------------------------|-------------------------|
+| Precision Peg-in-Hole Insertion | 100 | 14.2 ± 2.1 | 0.4 ± 0.1 | 32.1 ± 5.4 |
+| Screw Tightening (Threaded Assembly) | 100 | 20.5 ± 3.2 | 1.2 ± 0.3 | 35.4 ± 6.1 |
+| Long-Bar Cooperative Transport | 100 | 17.8 ± 2.5 | 2.5 ± 0.6 | 34.2 ± 5.7 |
+| Dual-Arm Sequential Assembly (Fix + Operate) | 100 | 24.1 ± 3.8 | 1.8 ± 0.5 | 38.5 ± 6.8 |
 
 ## Prerequisites
 
