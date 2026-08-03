@@ -29,7 +29,7 @@ lerobot = [
 ]
 
 [project.urls]
-Repository = "https://github.com/yuxiang-vr-teleop"
+Repository = "https://github.com/molyswu/wuyuxiang-vr-teleop"
 "DK1 driver + URDF" = "https://github.com/robot-learning-co/trlc-dk1"
 
 [project.scripts]

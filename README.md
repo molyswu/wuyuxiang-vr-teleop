@@ -2,8 +2,29 @@
 
 VR teleoperation kit for the **PIPER robotic arm** using a **Meta Quest** headset. A ROS2 Humble node reads 7-DoF controller poses from the Quest via USB ADB, runs inverse kinematics (IK) on a MuJoCo model built from the PIPER URDF, and sends joint commands over CAN bus through the Piper SDK.
 
- reworked for the single-arm PIPER platform.https://github.com/agilexrobotics/piper_sdk.
-https://github.com/google-deepmind/mujoco_menagerie/tree/main/agilex_piper
+> **Paper**: [*Beyond Kinesthetic Twins: A Dematerialized Control Primitive for Zero-Shot Generalization Across Robot Morphologies*](https://doi.org/10.21203/rs.3.rs-10484850/v1)  
+> DOI: [10.21203/rs.3.rs-10484850/v1](https://doi.org/10.21203/rs.3.rs-10484850/v1)
+
+This project implements the dematerialized control primitive (DCP) described in the paper — a clutch-relative VR pose mapping that decouples teleoperation from any specific robot morphology, enabling zero-shot transfer of learned manipulation policies from simulation to real-world robots of different kinematic structures.
+
+**Supported robots and SDKs:**
+
+| Platform | SDK / URDF |
+|----------|------------|
+| PIPER (single-arm) | [agilexrobotics/piper_sdk](https://github.com/agilexrobotics/piper_sdk), [mujoco_menagerie/agilex_piper](https://github.com/google-deepmind/mujoco_menagerie/tree/main/agilex_piper) |
+| TRLC-DK1 (bimanual) | [robot-learning-co/trlc-dk1](https://github.com/robot-learning-co/trlc-dk1) |
+
+## Demo Videos
+
+| PIPER (single-arm) | TRLC-DK1 (bimanual) |
+|:---:|:---:|
+| [![PIPER VR Teleop](video/vr-teleop-PIPER.mp4)](video/vr-teleop-PIPER.mp4) | [![TRLC-DK1 Demo 1](video/vr-teleop-trlc-dk1-1.mp4)](video/vr-teleop-trlc-dk1-1.mp4) |
+| *Clutch-relative mapping + safety gate* | [![TRLC-DK1 Demo 2](video/vr-teleop-trlc-dk1-2.mp4)](video/vr-teleop-trlc-dk1-2.mp4) |
+| | [![TRLC-DK1 Demo 3](video/vr-teleop-trlc-dk1-3.mp4)](video/vr-teleop-trlc-dk1-3.mp4) |
+| | [![TRLC-DK1 Demo 4](video/vr-teleop-trlc-dk1-4.mp4)](video/vr-teleop-trlc-dk1-4.mp4) |
+
+Click any video to view (opens in browser's native video player).
+
 ## Highlights
 
 | Feature | Description |
@@ -58,7 +79,7 @@ Three layers, separated by concern:
 
 ```bash
 # Clone this repo
-git clone git@github.com:molyswu/yuxiang-vr-teleop.git
+git clone git@github.com:molyswu/wuyuxiang-vr-teleop.git
 cd yuxiang-vr-teleop
 
 # Set up ROS2 Humble environment
