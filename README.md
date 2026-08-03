@@ -7,6 +7,7 @@ VR teleoperation kit for the **PIPER robotic arm** using a **Meta Quest** headse
 **Authors:** [Yuxiang Wu](https://github.com/molyswu)¹\*,Tusun Wu²* , Yuyan Wu3  
 ¹ The Education University of Hong Kong  
 2 Shenzhen Metachip Technology Co,. Ltd
+> 
 3 Guangdong Polytechnic Normal University  
 \* 
 This project implements the dematerialized control primitive (DCP) described in the paper — a clutch-relative VR pose mapping that decouples teleoperation from any specific robot morphology, enabling zero-shot transfer of learned manipulation policies from simulation to real-world robots of different kinematic structures.
